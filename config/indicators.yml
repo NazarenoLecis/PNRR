@@ -1,0 +1,22 @@
+indicators:
+  payment_progress_pnrr:
+    description: "Pagamenti PNRR cumulati / finanziamento PNRR."
+    numerator: "pagamento_pnrr"
+    denominator: "finanziamento_pnrr"
+    unit: "ratio"
+
+  payment_progress_total:
+    description: "Pagamenti totali cumulati / finanziamento totale."
+    numerator: "pagamento_tot"
+    denominator: "finanziamento_totale"
+    unit: "ratio"
+
+  pnrr_share_public_funding:
+    description: "Finanziamento PNRR / finanziamento pubblico totale."
+    numerator: "finanziamento_pnrr"
+    denominator: "finanziamento_totale_pubblico"
+    unit: "ratio"
+
+  projects_count:
+    description: "Numero di progetti distinti."
+    unit: "count"
