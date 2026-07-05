@@ -178,6 +178,8 @@ La pulizia normalizza nomi colonna, identificativi e importi. I pagamenti vengon
 
 Le localizzazioni vengono arricchite con l'anagrafica dei territori. Per ogni progetto viene scelto il livello territoriale più fine disponibile. Se un progetto ha più localizzazioni allo stesso livello selezionato, gli importi sono ripartiti in quote uguali.
 
+Gli aggregati comunali usano le localizzazioni comunali selezionate. Gli aggregati provinciali, di città metropolitana e regionali sono costruiti con roll-up gerarchico dai territori selezionati verso i rispettivi territori padre.
+
 Gli indicatori nazionali usano progetti non duplicati. Gli indicatori territoriali usano importi allocati.
 
 ## Assunzioni e limiti
