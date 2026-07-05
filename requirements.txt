@@ -3,3 +3,4 @@ requests>=2.31
 matplotlib>=3.8
 notebook>=7.0
 ipykernel>=6.0
+nbformat>=5.10
