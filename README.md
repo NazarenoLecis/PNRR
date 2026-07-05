@@ -18,6 +18,7 @@ repo/
       download_pnrr_data.py
       clean_pnrr_projects.py
       build_pnrr_indicators.py
+      export_dashboard_data.py
       make_pnrr_charts.py
       run_pnrr_pipeline.py
 
@@ -83,19 +84,47 @@ Run per fasi:
 python scripts/src/download_pnrr_data.py
 python scripts/src/clean_pnrr_projects.py
 python scripts/src/build_pnrr_indicators.py
+python scripts/src/export_dashboard_data.py
 python scripts/src/make_pnrr_charts.py
 ```
+
+## Impostazione leggera per dashboard
+
+La dashboard non deve leggere raw, clean o indicatori completi. Questi file servono all'analisi locale. Il front-end deve usare il file compatto prodotto da:
+
+```bash
+python scripts/src/export_dashboard_data.py
+```
+
+Il file principale per la dashboard è:
+
+```text
+output/data/dashboard/<snapshot>/pnrr_dashboard_data.json
+```
+
+Questo JSON contiene solo:
+
+- sintesi nazionale;
+- regioni;
+- province e città metropolitane;
+- primi comuni per finanziamento PNRR allocato;
+- primi progetti per finanziamento PNRR.
+
+I limiti dimensionali sono configurati in `DASHBOARD_SETTINGS`.
 
 ## Parametri principali
 
 I parametri sono centralizzati in `scripts/config.py`.
 
-- `SAVE_RAW_JSON` salva ogni fonte grezza anche in JSON.
-- `SAVE_CLEAN_JSON` salva le tabelle pulite anche in JSON.
+- `SAVE_RAW_JSON = False` evita JSON pesanti dei dati grezzi.
+- `SAVE_CLEAN_JSON = False` evita JSON pesanti dei dati puliti.
+- `SAVE_INDICATOR_JSON = False` evita JSON completi degli indicatori.
+- `SAVE_DASHBOARD_JSON = True` genera solo il JSON compatto per dashboard.
 - `ALLOW_SAMPLE_FALLBACK` abilita un piccolo campione tecnico se il download remoto non è disponibile.
 - `DOWNLOAD_TIMEOUT_SECONDS` definisce il timeout HTTP.
 - `FUNDING_COLUMNS` e `PAYMENT_COLUMNS` definiscono le colonne monetarie.
 - `TERRITORY_PRIORITY` definisce la priorità territoriale: comune, città metropolitana, provincia, regione.
+- `DASHBOARD_SETTINGS` definisce numero massimo di comuni e progetti esportati nella dashboard.
 - `CHART_SETTINGS` controlla dimensione grafici e numero di elementi nei ranking.
 
 Per lavorare solo su dati reali, impostare `ALLOW_SAMPLE_FALLBACK = False`.
@@ -106,7 +135,6 @@ Dati grezzi in `output/data/raw/<snapshot>/`.
 
 ```text
 openpnrr_*.csv
-openpnrr_*.json
 manifest.json
 ```
 
@@ -114,35 +142,32 @@ Dati puliti in `output/data/clean/<snapshot>/`.
 
 ```text
 projects.csv
-projects.json
 payments.csv
-payments.json
 locations.csv
-locations.json
 territories.csv
-territories.json
 cleaning_report.csv
-cleaning_report.json
 ```
 
-Indicatori in `output/data/indicators/<snapshot>/`.
+Indicatori completi in `output/data/indicators/<snapshot>/`.
 
 ```text
 projects_payments.csv
-projects_payments.json
 territory_projects.csv
-territory_projects.json
 national_summary.csv
-national_summary.json
 regional_summary.csv
-regional_summary.json
 province_summary.csv
-province_summary.json
 metropolitan_city_summary.csv
-metropolitan_city_summary.json
 municipal_summary.csv
-municipal_summary.json
 run_summary.json
+```
+
+Dataset compatto per dashboard in `output/data/dashboard/<snapshot>/`.
+
+```text
+pnrr_dashboard_data.json
+dashboard_regions.csv
+dashboard_top_municipalities.csv
+dashboard_manifest.json
 ```
 
 Grafici in `output/charts/<snapshot>/`.
@@ -172,7 +197,7 @@ Le colonne con suffisso `_allocated` contengono importi territorialmente allocat
 
 La pipeline salva uno snapshot locale dei dati. Il nome dello snapshot coincide con la data di lavorazione se non viene indicato un nome diverso.
 
-Il download genera CSV e JSON. Il manifest indica per ogni fonte se il dato è stato scaricato o se è stato usato il fallback campione.
+Il download salva i CSV grezzi. I JSON completi sono disattivati di default per evitare output troppo pesanti.
 
 La pulizia normalizza nomi colonna, identificativi e importi. I pagamenti vengono aggregati per progetto prima del join.
 
@@ -201,5 +226,7 @@ Gli indicatori pro capite richiedono una fonte demografica aggiuntiva, per esemp
 `regional_summary.csv` confronta le regioni per finanziamenti, pagamenti e avanzamento finanziario allocato.
 
 `municipal_summary.csv` permette analisi comunali sui soli progetti localizzati a livello comunale.
+
+`pnrr_dashboard_data.json` è il file da servire alla dashboard. Gli altri output sono file di lavoro e controllo.
 
 Un avanzamento finanziario alto indica maggiore quota pagata rispetto al finanziamento registrato. Non misura direttamente avanzamento fisico, qualità amministrativa o impatto economico.
