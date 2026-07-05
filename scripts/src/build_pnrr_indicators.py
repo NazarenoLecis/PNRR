@@ -34,15 +34,7 @@ def save_indicator(df: pd.DataFrame, path: Path) -> None:
 
 
 def add_financial_ratios(df: pd.DataFrame, suffix: str = "") -> pd.DataFrame:
-    """Aggiunge rapporti pagamento/finanziamento a una tabella con importi.
-
-    Args:
-        df: tabella con colonne di pagamento e finanziamento.
-        suffix: suffisso usato per colonne allocate.
-
-    Returns:
-        Copia della tabella con rapporti finanziari.
-    """
+    """Aggiunge rapporti pagamento/finanziamento a una tabella con importi."""
     output = df.copy()
     pnrr_payment = f"pagamento_pnrr{suffix}"
     pnrr_funding = f"finanziamento_pnrr{suffix}"
@@ -56,11 +48,7 @@ def add_financial_ratios(df: pd.DataFrame, suffix: str = "") -> pd.DataFrame:
 
 
 def merge_projects_with_payments(projects: pd.DataFrame, payments: pd.DataFrame) -> pd.DataFrame:
-    """Unisce progetti e pagamenti su `project_key` e restituisce progetti arricchiti.
-
-    I pagamenti sono aggregati per progetto perché la fonte può contenere più
-    righe per lo stesso progetto e diverse fonti di pagamento.
-    """
+    """Unisce progetti e pagamenti su `project_key` dopo aggregazione per progetto."""
     value_columns = [column for column in PAYMENT_COLUMNS if column in payments.columns]
     aggregations = {column: "sum" for column in value_columns}
     if "data_aggiornamento" in payments.columns:
@@ -74,10 +62,10 @@ def merge_projects_with_payments(projects: pd.DataFrame, payments: pd.DataFrame)
 
 
 def attach_territory_registry(locations: pd.DataFrame, territories: pd.DataFrame) -> pd.DataFrame:
-    """Aggiunge denominazione, tipologia e codici territoriali alle localizzazioni."""
+    """Aggiunge denominazione, tipologia, parent e codici territoriali alle localizzazioni."""
     territory_columns = [column for column in ["territorio_id", "istat_id", "tipologia", "denominazione", "parent_id"] if column in territories.columns]
     enriched = locations.merge(territories[territory_columns], on="territorio_id", how="left", suffixes=("", "_registry"))
-    for column in ["istat_id", "tipologia", "denominazione"]:
+    for column in ["istat_id", "tipologia", "denominazione", "parent_id"]:
         registry_column = f"{column}_registry"
         if registry_column in enriched.columns:
             if column in enriched.columns:
@@ -91,13 +79,12 @@ def attach_territory_registry(locations: pd.DataFrame, territories: pd.DataFrame
 def expand_projects_by_territory(projects_payments: pd.DataFrame, locations: pd.DataFrame, territories: pd.DataFrame) -> pd.DataFrame:
     """Restituisce righe progetto-territorio al livello più fine disponibile.
 
-    Criterio metodologico: per ogni progetto si seleziona la localizzazione con
-    priorità territoriale più alta. L'ordine è comune, città metropolitana,
-    provincia, regione. Questo evita che lo stesso progetto entri con importo
-    pieno in più livelli quando la fonte contiene localizzazioni ridondanti.
+    Per ogni progetto si seleziona la localizzazione con priorità più alta:
+    comune, città metropolitana, provincia, regione. Gli aggregati regionali e
+    provinciali sono poi costruiti con roll-up gerarchico sui territori padre.
     """
     enriched_locations = attach_territory_registry(locations, territories)
-    required = ["project_key", "territorio_id", "istat_id", "denominazione", "tipologia"]
+    required = ["project_key", "territorio_id", "istat_id", "denominazione", "tipologia", "parent_id"]
     available = [column for column in required if column in enriched_locations.columns]
     territory_projects = enriched_locations[available].merge(projects_payments, on="project_key", how="left")
     territory_projects["territory_priority"] = territory_projects["tipologia"].map(TERRITORY_PRIORITY).fillna(0).astype(int)
@@ -108,12 +95,7 @@ def expand_projects_by_territory(projects_payments: pd.DataFrame, locations: pd.
 
 
 def apply_equal_territorial_allocation(territory_projects: pd.DataFrame) -> pd.DataFrame:
-    """Ripartisce uniformemente importi e pagamenti tra localizzazioni selezionate.
-
-    Se un progetto ha due comuni selezionati, ogni comune riceve metà degli
-    importi. La regola è documentata perché la fonte non pubblica quote
-    territoriali specifiche per progetto.
-    """
+    """Ripartisce uniformemente importi e pagamenti tra localizzazioni selezionate."""
     output = territory_projects.copy()
     output["n_selected_locations"] = output.groupby("project_key")["territorio_id"].transform("nunique").replace(0, pd.NA)
     output["allocation_weight_equal"] = 1 / output["n_selected_locations"]
@@ -121,6 +103,58 @@ def apply_equal_territorial_allocation(territory_projects: pd.DataFrame) -> pd.D
         if column in output.columns:
             output[f"{column}_allocated"] = pd.to_numeric(output[column], errors="coerce").fillna(0.0) * output["allocation_weight_equal"]
     return output
+
+
+def territory_lookup(territories: pd.DataFrame) -> dict[str, dict[str, object]]:
+    """Restituisce un dizionario territorio_id -> attributi territoriali."""
+    columns = [column for column in ["territorio_id", "parent_id", "istat_id", "tipologia", "denominazione"] if column in territories.columns]
+    registry = territories[columns].drop_duplicates("territorio_id")
+    return registry.set_index("territorio_id").to_dict(orient="index")
+
+
+def find_ancestor(territory_id: object, lookup: dict[str, dict[str, object]], target_levels: set[str]) -> dict[str, object] | None:
+    """Cerca il primo territorio antenato con tipologia compresa in target_levels."""
+    current = str(territory_id) if pd.notna(territory_id) else ""
+    seen: set[str] = set()
+    while current and current not in seen and current in lookup:
+        seen.add(current)
+        record = lookup[current]
+        if record.get("tipologia") in target_levels:
+            return {"territory_id": current, **record}
+        parent = record.get("parent_id")
+        current = str(parent) if pd.notna(parent) else ""
+    return None
+
+
+def add_rollup_columns(territory_projects: pd.DataFrame, territories: pd.DataFrame, target_levels: set[str]) -> pd.DataFrame:
+    """Aggiunge colonne di roll-up verso regione, provincia, città metropolitana o comune."""
+    lookup = territory_lookup(territories)
+    rows = []
+    for territory_id in territory_projects["territorio_id"]:
+        ancestor = find_ancestor(territory_id, lookup, target_levels)
+        rows.append(ancestor or {})
+    ancestors = pd.DataFrame(rows, index=territory_projects.index)
+    output = territory_projects.copy()
+    output["rollup_territory_id"] = ancestors.get("territory_id")
+    output["rollup_istat_id"] = ancestors.get("istat_id")
+    output["rollup_name"] = ancestors.get("denominazione")
+    output["rollup_level"] = ancestors.get("tipologia")
+    return output.dropna(subset=["rollup_territory_id"])
+
+
+def aggregate_rollup_level(territory_projects: pd.DataFrame, territories: pd.DataFrame, target_levels: set[str]) -> pd.DataFrame:
+    """Aggrega importi allocati dopo roll-up gerarchico al livello richiesto."""
+    rolled = add_rollup_columns(territory_projects, territories, target_levels)
+    if rolled.empty:
+        return pd.DataFrame(columns=["territory_id", "territory_name", "territory_level", "projects_count"])
+    group_columns = ["rollup_istat_id", "rollup_name", "rollup_level"]
+    value_columns = [column for column in rolled.columns if column.endswith("_allocated")]
+    aggregated = rolled.groupby(group_columns, dropna=False)[value_columns].sum().reset_index()
+    counts = rolled.groupby(group_columns, dropna=False)["project_key"].nunique().reset_index().rename(columns={"project_key": "projects_count"})
+    weights = rolled.groupby(group_columns, dropna=False)["allocation_weight_equal"].sum().reset_index().rename(columns={"allocation_weight_equal": "weighted_projects_count"})
+    aggregated = aggregated.merge(counts, on=group_columns, how="left").merge(weights, on=group_columns, how="left")
+    aggregated = aggregated.rename(columns={"rollup_istat_id": "territory_id", "rollup_name": "territory_name", "rollup_level": "territory_level"})
+    return add_financial_ratios(aggregated, suffix="_allocated").sort_values("territory_name", na_position="last")
 
 
 def aggregate_national(projects_payments: pd.DataFrame) -> pd.DataFrame:
@@ -134,21 +168,6 @@ def aggregate_national(projects_payments: pd.DataFrame) -> pd.DataFrame:
     return add_financial_ratios(summary)
 
 
-def aggregate_territory_level(territory_projects: pd.DataFrame, territory_level: str) -> pd.DataFrame:
-    """Aggrega importi allocati per livello territoriale."""
-    subset = territory_projects.loc[territory_projects["tipologia"] == territory_level].copy()
-    if subset.empty:
-        return pd.DataFrame(columns=["territory_id", "territory_name", "territory_level", "projects_count"])
-    group_columns = ["istat_id", "denominazione", "tipologia"]
-    value_columns = [column for column in subset.columns if column.endswith("_allocated")]
-    aggregated = subset.groupby(group_columns, dropna=False)[value_columns].sum().reset_index()
-    counts = subset.groupby(group_columns, dropna=False)["project_key"].nunique().reset_index().rename(columns={"project_key": "projects_count"})
-    weights = subset.groupby(group_columns, dropna=False)["allocation_weight_equal"].sum().reset_index().rename(columns={"allocation_weight_equal": "weighted_projects_count"})
-    aggregated = aggregated.merge(counts, on=group_columns, how="left").merge(weights, on=group_columns, how="left")
-    aggregated = aggregated.rename(columns={"istat_id": "territory_id", "denominazione": "territory_name", "tipologia": "territory_level"})
-    return add_financial_ratios(aggregated, suffix="_allocated").sort_values("territory_name", na_position="last")
-
-
 def build_pnrr_indicators(snapshot: str | None = None) -> Path:
     """Salva indicatori nazionali e territoriali e restituisce la cartella output."""
     snapshot_name = snapshot or latest_snapshot(CLEAN_DATA_DIR)
@@ -157,14 +176,18 @@ def build_pnrr_indicators(snapshot: str | None = None) -> Path:
     tables = load_clean_tables(snapshot_name)
     projects_payments = merge_projects_with_payments(tables["projects"], tables["payments"])
     territory_projects = apply_equal_territorial_allocation(expand_projects_by_territory(projects_payments, tables["locations"], tables["territories"]))
+
     save_indicator(projects_payments, output_dir / "projects_payments.csv")
     save_indicator(territory_projects, output_dir / "territory_projects.csv")
     save_indicator(aggregate_national(projects_payments), output_dir / "national_summary.csv")
+
+    level_targets = {"R": {"R"}, "P": {"P"}, "CM": {"CM"}, "C": {"C"}}
     summaries = {}
     for level, filename in TERRITORY_OUTPUT_FILES.items():
-        summary = aggregate_territory_level(territory_projects, level)
+        summary = aggregate_rollup_level(territory_projects, tables["territories"], level_targets[level])
         summaries[level] = summary
         save_indicator(summary, output_dir / filename)
+
     province_like = [summaries.get("P", pd.DataFrame()), summaries.get("CM", pd.DataFrame())]
     province_like = [df for df in province_like if not df.empty]
     if province_like:
