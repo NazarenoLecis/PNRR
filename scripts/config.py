@@ -17,6 +17,7 @@ OUTPUT_CHARTS_DIR = PROJECT_ROOT / "output" / "charts"
 RAW_DATA_DIR = OUTPUT_DATA_DIR / "raw"
 CLEAN_DATA_DIR = OUTPUT_DATA_DIR / "clean"
 INDICATORS_DATA_DIR = OUTPUT_DATA_DIR / "indicators"
+DASHBOARD_DATA_DIR = OUTPUT_DATA_DIR / "dashboard"
 
 DEFAULT_SNAPSHOT = date.today().isoformat()
 ANALYSIS_YEARS = list(range(2021, 2031))
@@ -30,10 +31,13 @@ ANAC_OPEN_DATA_PAGE = "https://dati.anticorruzione.it/opendata"
 OPENCUP_PAGE = "https://www.opencup.gov.it/"
 ISTAT_TERRITORIAL_CODES_PAGE = "https://www.istat.it/it/archivio/6789"
 
-# Il download salva sempre i CSV grezzi. Se SAVE_RAW_JSON è True salva anche
-# una versione JSON per ogni tabella scaricata o generata come fallback tecnico.
-SAVE_RAW_JSON = True
-SAVE_CLEAN_JSON = True
+# Impostazione leggera per dashboard: i file pesanti restano in CSV locali.
+# Il JSON completo dei raw, clean e indicatori è disattivato di default.
+# Il JSON per il front-end viene generato da export_dashboard_data.py.
+SAVE_RAW_JSON = False
+SAVE_CLEAN_JSON = False
+SAVE_INDICATOR_JSON = False
+SAVE_DASHBOARD_JSON = True
 ALLOW_SAMPLE_FALLBACK = True
 DOWNLOAD_TIMEOUT_SECONDS = 60
 DOWNLOAD_RETRIES = 1
@@ -104,10 +108,19 @@ CHART_SETTINGS = {
     "top_n_municipalities": 25,
 }
 
+DASHBOARD_SETTINGS = {
+    "top_municipalities": 1000,
+    "top_projects": 500,
+    "round_digits": 2,
+    "dashboard_json_filename": "pnrr_dashboard_data.json",
+    "dashboard_manifest_filename": "dashboard_manifest.json",
+}
+
 PIPELINE_DIRECTORIES = [
     OUTPUT_DATA_DIR,
     OUTPUT_CHARTS_DIR,
     RAW_DATA_DIR,
     CLEAN_DATA_DIR,
     INDICATORS_DATA_DIR,
+    DASHBOARD_DATA_DIR,
 ]
