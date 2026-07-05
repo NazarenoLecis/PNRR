@@ -39,7 +39,7 @@ def clean_payments(df: pd.DataFrame) -> pd.DataFrame:
     output = add_project_key(output)
     output = coerce_numeric_columns(output, PAYMENT_COLUMNS)
     if "data_aggiornamento" in output.columns:
-        output["data_aggiornamento"] = pd.to_datetime(output["data_aggiornamento"], errors="coerce", dayfirst=True).dt.date.astype("string")
+        output["data_aggiornamento"] = pd.to_datetime(output["data_aggiornamento"], errors="coerce", format="mixed", dayfirst=True).dt.date.astype("string")
     return output.drop_duplicates().reset_index(drop=True)
 
 
