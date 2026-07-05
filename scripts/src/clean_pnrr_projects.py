@@ -11,8 +11,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.config import CLEAN_DATA_DIR, CORE_TABLES, FUNDING_COLUMNS, OPENPNRR_SOURCES, PAYMENT_COLUMNS, RAW_DATA_DIR
-from scripts.utils import add_project_key, clean_code, coerce_numeric_columns, latest_snapshot, normalize_columns, read_csv, write_csv
+from scripts.config import CLEAN_DATA_DIR, CORE_TABLES, FUNDING_COLUMNS, OPENPNRR_SOURCES, PAYMENT_COLUMNS, RAW_DATA_DIR, SAVE_CLEAN_JSON
+from scripts.utils import add_project_key, clean_code, coerce_numeric_columns, latest_snapshot, normalize_columns, read_csv, write_table_outputs
 
 
 def read_raw_table(source_name: str, snapshot: str | None = None) -> pd.DataFrame:
@@ -23,62 +23,79 @@ def read_raw_table(source_name: str, snapshot: str | None = None) -> pd.DataFram
 
 
 def clean_projects(df: pd.DataFrame) -> pd.DataFrame:
-    """Riceve progetti raw, normalizza colonne e importi, restituisce progetti puliti."""
+    """Normalizza progetti, chiave progetto e importi di finanziamento."""
     output = normalize_columns(df)
     output = add_project_key(output)
     output = coerce_numeric_columns(output, FUNDING_COLUMNS)
-    for column in ["codice_misura", "soggetto_attuatore_cf"]:
+    for column in ["cup", "codice_locale_progetto", "codice_misura", "soggetto_attuatore_cf"]:
         if column in output.columns:
             output[column] = output[column].map(clean_code).astype("string")
-    return output
+    return output.drop_duplicates().reset_index(drop=True)
 
 
 def clean_payments(df: pd.DataFrame) -> pd.DataFrame:
-    """Riceve pagamenti raw, normalizza importi e data aggiornamento, restituisce pagamenti puliti."""
+    """Normalizza pagamenti, chiave progetto, importi e data aggiornamento."""
     output = normalize_columns(df)
     output = add_project_key(output)
     output = coerce_numeric_columns(output, PAYMENT_COLUMNS)
     if "data_aggiornamento" in output.columns:
         output["data_aggiornamento"] = pd.to_datetime(output["data_aggiornamento"], errors="coerce", dayfirst=True).dt.date.astype("string")
-    return output
+    return output.drop_duplicates().reset_index(drop=True)
 
 
 def clean_locations(df: pd.DataFrame) -> pd.DataFrame:
-    """Riceve localizzazioni raw, normalizza identificativi territoriali e restituisce dati puliti."""
+    """Normalizza localizzazioni progetto-territorio.
+
+    La tabella può contenere solo `progetto_id` e `territorio_id`. La chiave
+    `project_key` viene costruita con la stessa regola usata per progetti e
+    pagamenti, così il join resta stabile anche con colonne diverse.
+    """
     output = normalize_columns(df)
     output = add_project_key(output)
+    if "id" in output.columns and "territorio_id" not in output.columns:
+        output = output.rename(columns={"id": "territorio_id"})
     for column in ["territorio_id", "istat_id", "tipologia"]:
         if column in output.columns:
             output[column] = output[column].map(clean_code).astype("string")
     if "denominazione" in output.columns:
         output["denominazione"] = output["denominazione"].astype("string").str.strip()
-    return output
+    keep = [column for column in ["project_key", "territorio_id", "istat_id", "tipologia", "denominazione"] if column in output.columns]
+    return output[keep].drop_duplicates().reset_index(drop=True)
 
 
 def clean_territories(df: pd.DataFrame) -> pd.DataFrame:
-    """Riceve anagrafica territori raw e restituisce identificativi normalizzati."""
+    """Normalizza l'anagrafica territoriale e rende stabile `territorio_id`."""
     output = normalize_columns(df)
-    for column in ["territorio_id", "istat_id", "tipologia"]:
+    if "id" in output.columns and "territorio_id" not in output.columns:
+        output = output.rename(columns={"id": "territorio_id"})
+    for column in ["territorio_id", "parent_id", "istat_id", "tipologia", "identifier"]:
         if column in output.columns:
             output[column] = output[column].map(clean_code).astype("string")
-    return output
+    if "denominazione" in output.columns:
+        output["denominazione"] = output["denominazione"].astype("string").str.strip()
+    keep = [column for column in ["territorio_id", "parent_id", "istat_id", "tipologia", "identifier", "denominazione"] if column in output.columns]
+    return output[keep].drop_duplicates().reset_index(drop=True)
 
 
 def build_clean_pnrr_tables(snapshot: str | None = None) -> Path:
-    """Riceve uno snapshot raw, salva le tabelle pulite e restituisce la cartella clean."""
+    """Salva le tabelle pulite in CSV e JSON e restituisce la cartella clean."""
     snapshot_name = snapshot or latest_snapshot(RAW_DATA_DIR)
     output_dir = CLEAN_DATA_DIR / snapshot_name
     output_dir.mkdir(parents=True, exist_ok=True)
     cleaners = {"projects": clean_projects, "payments": clean_payments, "locations": clean_locations, "territories": clean_territories}
+    report = []
     for table_name in CORE_TABLES:
         raw = read_raw_table(table_name, snapshot=snapshot_name)
         clean = cleaners[table_name](raw)
-        write_csv(clean, output_dir / OPENPNRR_SOURCES[table_name]["clean_filename"])
+        output_path = output_dir / OPENPNRR_SOURCES[table_name]["clean_filename"]
+        write_table_outputs(clean, output_path, save_json_output=SAVE_CLEAN_JSON)
+        report.append({"table": table_name, "raw_rows": len(raw), "clean_rows": len(clean), "columns": clean.shape[1], "path": str(output_path)})
+    write_table_outputs(pd.DataFrame(report), output_dir / "cleaning_report.csv", save_json_output=SAVE_CLEAN_JSON)
     return output_dir
 
 
 def main() -> None:
-    """Esegue la pulizia sullo snapshot raw più recente e non restituisce valori."""
+    """Esegue la pulizia sullo snapshot raw più recente."""
     output_dir = build_clean_pnrr_tables()
     print(f"Dati puliti salvati in: {output_dir}")
 
