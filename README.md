@@ -1,10 +1,10 @@
 # PNRR
 
-Questo repository serve ad analizzare i dati aperti sul Piano nazionale di ripresa e resilienza a livello nazionale, regionale e comunale.
+Repository per analizzare gli open data sul Piano nazionale di ripresa e resilienza a livello nazionale, regionale, provinciale e comunale.
 
-L'obiettivo è costruire una pipeline leggibile e ripetibile. Il codice scarica i dati, li pulisce, costruisce indicatori territoriali e salva tabelle e grafici nelle cartelle di output.
+L'obiettivo è costruire una pipeline leggibile e ripetibile per capire dove ricadono i progetti, quali importi risultano finanziati, quali pagamenti risultano registrati e come cambiano gli indicatori tra territori.
 
-## Struttura del repository
+## Struttura
 
 ```text
 repo/
@@ -32,51 +32,52 @@ repo/
     charts/
 ```
 
-`scripts/config.py` centralizza percorsi, URL, nomi dei file, colonne monetarie, livelli territoriali, parametri dei grafici e costanti metodologiche.
+`scripts/config.py` contiene percorsi, URL, parametri, colonne monetarie, livelli territoriali e costanti metodologiche.
 
-`scripts/utils.py` contiene funzioni riutilizzabili per lettura e salvataggio dei file, creazione delle cartelle, normalizzazione delle stringhe, conversione degli importi, gestione delle date e controlli sulle colonne.
+`scripts/utils.py` contiene funzioni riutilizzabili per lettura, scrittura, JSON, normalizzazione, conversione importi e chiavi tecniche.
 
-`scripts/src` contiene il codice operativo del progetto. Ogni file ha una responsabilità specifica.
+`scripts/src` contiene il codice operativo.
 
-`notebooks` contiene notebook numerati per controlli, analisi, focus territoriali e grafici finali. I notebook richiamano le funzioni presenti in `scripts`.
-
-`output/data` contiene dati scaricati, puliti, trasformati e pronti per l'analisi.
-
-`output/charts` contiene grafici, immagini e visualizzazioni prodotte dal codice.
+`notebooks` contiene notebook numerati con parametri modificabili, spiegazioni e controlli.
 
 ## Fonti dati
 
 La fonte operativa iniziale è OpenPNRR.
 
-I file configurati sono missioni, componenti, misure, scadenze, organizzazioni, territori, progetti, localizzazioni dei progetti, pagamenti dei progetti e gare associate a CIG PNRR.
+- Open data: https://openpnrr.it/opendata/
+- Metadati: https://openpnrr.it/metadati/
 
-I link sono definiti in `scripts/config.py` dentro la costante `OPENPNRR_SOURCES`.
+La configurazione include missioni, componenti, misure, scadenze, organizzazioni, territori, temi, priorità, progetti, localizzazioni, pagamenti e CIG/gare PNRR.
 
-Il progetto è predisposto per integrare anche Italia Domani, ANAC, OpenCUP e ISTAT.
+Gli URL sono definiti in `OPENPNRR_SOURCES` dentro `scripts/config.py`.
 
 ## Installazione
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 Su Windows PowerShell:
 
 ```powershell
+python -m venv .venv
 .venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
 ## Esecuzione
 
-Esegui tutta la pipeline dalla radice del repository.
+Run completo:
 
 ```bash
 python scripts/src/run_pnrr_pipeline.py
 ```
 
-Puoi eseguire le fasi separatamente.
+Run per fasi:
 
 ```bash
 python scripts/src/download_pnrr_data.py
@@ -85,100 +86,118 @@ python scripts/src/build_pnrr_indicators.py
 python scripts/src/make_pnrr_charts.py
 ```
 
-La data dello snapshot è definita in `scripts/config.py`. Per impostazione predefinita usa la data corrente. Per rendere ripetibile una lavorazione, modifica `DEFAULT_SNAPSHOT` oppure passa una data chiamando le funzioni dai notebook.
+## Parametri principali
 
-## Output prodotti
+I parametri sono centralizzati in `scripts/config.py`.
 
-I dati vengono salvati in `output/data`.
+- `SAVE_RAW_JSON` salva ogni fonte grezza anche in JSON.
+- `SAVE_CLEAN_JSON` salva le tabelle pulite anche in JSON.
+- `ALLOW_SAMPLE_FALLBACK` abilita un piccolo campione tecnico se il download remoto non è disponibile.
+- `DOWNLOAD_TIMEOUT_SECONDS` definisce il timeout HTTP.
+- `FUNDING_COLUMNS` e `PAYMENT_COLUMNS` definiscono le colonne monetarie.
+- `TERRITORY_PRIORITY` definisce la priorità territoriale: comune, città metropolitana, provincia, regione.
+- `CHART_SETTINGS` controlla dimensione grafici e numero di elementi nei ranking.
+
+Per lavorare solo su dati reali, impostare `ALLOW_SAMPLE_FALLBACK = False`.
+
+## Output
+
+Dati grezzi in `output/data/raw/<snapshot>/`.
 
 ```text
-output/data/raw/<snapshot>/
-  file originali scaricati dalle fonti
-  manifest.json
-
-output/data/clean/<snapshot>/
-  projects.csv
-  payments.csv
-  locations.csv
-  territories.csv
-
-output/data/indicators/<snapshot>/
-  projects_payments.csv
-  territory_projects.csv
-  national_summary.csv
-  regional_summary.csv
-  province_summary.csv
-  metropolitan_city_summary.csv
-  province_and_metropolitan_city_summary.csv
-  municipal_summary.csv
+openpnrr_*.csv
+openpnrr_*.json
+manifest.json
 ```
 
-I grafici vengono salvati in `output/charts/<snapshot>/`.
+Dati puliti in `output/data/clean/<snapshot>/`.
 
-La prima versione produce `top_regions_by_pnrr_funding.png`, `top_regions_by_payment_progress.png` e `top_municipalities_by_pnrr_funding.png`.
+```text
+projects.csv
+projects.json
+payments.csv
+payments.json
+locations.csv
+locations.json
+territories.csv
+territories.json
+cleaning_report.csv
+cleaning_report.json
+```
 
-## Definizioni principali
+Indicatori in `output/data/indicators/<snapshot>/`.
 
-`finanziamento_pnrr` indica l'importo finanziato con risorse PNRR quando la colonna è disponibile nella fonte.
+```text
+projects_payments.csv
+projects_payments.json
+territory_projects.csv
+territory_projects.json
+national_summary.csv
+national_summary.json
+regional_summary.csv
+regional_summary.json
+province_summary.csv
+province_summary.json
+metropolitan_city_summary.csv
+metropolitan_city_summary.json
+municipal_summary.csv
+municipal_summary.json
+run_summary.json
+```
+
+Grafici in `output/charts/<snapshot>/`.
+
+```text
+top_regions_by_pnrr_funding.png
+top_regions_by_payment_progress.png
+top_municipalities_by_pnrr_funding.png
+charts_manifest.json
+```
+
+## Definizioni
+
+`finanziamento_pnrr` indica l'importo finanziato con risorse PNRR quando la colonna è disponibile.
 
 `pagamento_pnrr` indica i pagamenti PNRR cumulati registrati nel dataset dei pagamenti.
 
 `payment_progress_pnrr` è il rapporto tra `pagamento_pnrr` e `finanziamento_pnrr`.
 
-`payment_progress_total` è il rapporto tra `pagamento_tot` e `finanziamento_totale`.
+`project_key` è la chiave tecnica usata per collegare progetti, pagamenti e localizzazioni. La pipeline usa prima l'identificativo progetto esplicito. Se manca, usa CUP e codice locale progetto.
 
-`project_key` è la chiave tecnica usata per collegare progetti, pagamenti e localizzazioni. La pipeline la costruisce usando CUP e codice locale progetto. Quando queste informazioni mancano, usa l'identificativo progetto disponibile nella fonte.
+`allocation_weight_equal` è il peso usato per ripartire gli importi tra più localizzazioni selezionate dello stesso progetto.
 
-`territory_id` è il codice territoriale normalizzato usato negli aggregati.
+Le colonne con suffisso `_allocated` contengono importi territorialmente allocati.
 
 ## Metodologia
 
-La pipeline scarica i file configurati e salva una copia originale in una cartella snapshot. Il nome della cartella identifica la data della lavorazione.
+La pipeline salva uno snapshot locale dei dati. Il nome dello snapshot coincide con la data di lavorazione se non viene indicato un nome diverso.
 
-Poi normalizza i nomi delle colonne. La normalizzazione trasforma i nomi in minuscolo, rimuove accenti e caratteri speciali e usa lo snake case.
+Il download genera CSV e JSON. Il manifest indica per ogni fonte se il dato è stato scaricato o se è stato usato il fallback campione.
 
-Gli importi vengono convertiti in numeri gestendo sia il formato italiano sia il formato anglosassone.
+La pulizia normalizza nomi colonna, identificativi e importi. I pagamenti vengono aggregati per progetto prima del join.
 
-I progetti vengono collegati ai pagamenti e alle localizzazioni attraverso `project_key`.
+Le localizzazioni vengono arricchite con l'anagrafica dei territori. Per ogni progetto viene scelto il livello territoriale più fine disponibile. Se un progetto ha più localizzazioni allo stesso livello selezionato, gli importi sono ripartiti in quote uguali.
 
-Gli aggregati territoriali sono costruiti separando i livelli pubblicati nella fonte: `R` regioni, `P` province, `CM` città metropolitane, `C` comuni.
+Gli indicatori nazionali usano progetti non duplicati. Gli indicatori territoriali usano importi allocati.
 
-I progetti multi-localizzati sono trattati con riparto uniforme entro ciascun livello territoriale. Se un progetto è collegato a tre comuni, ogni comune riceve un terzo dell'importo negli aggregati comunali. Questa scelta evita doppi conteggi quando si sommano i territori dello stesso livello.
+## Assunzioni e limiti
 
-La stessa regola viene applicata ai finanziamenti e ai pagamenti. Le colonne allocate hanno suffisso `_allocated`.
-
-Gli indicatori di avanzamento sono rapporti tra pagamenti e finanziamenti. Quando il denominatore è nullo o mancante, il risultato viene lasciato vuoto.
-
-## Assunzioni
-
-Il dataset dei pagamenti viene interpretato come stock cumulato alla data di aggiornamento pubblicata dalla fonte.
+Il dataset dei pagamenti viene interpretato come stock cumulato alla data di aggiornamento disponibile nella fonte.
 
 La data dello snapshot locale indica quando i dati sono stati scaricati. Non coincide necessariamente con la data amministrativa del pagamento.
 
-Il riparto uniforme dei progetti multi-localizzati è una convenzione analitica. Non stima il riparto amministrativo effettivo della spesa quando la fonte non lo pubblica.
+Il riparto uniforme è una convenzione analitica. Non stima il riparto amministrativo effettivo quando la fonte non pubblica quote territoriali specifiche.
 
-## Limitazioni
+Il repository non ricostruisce ogni passaggio contabile al dettaglio di fattura o mandato.
 
-Il repository non ricostruisce ogni euro a livello di fattura, SAL o mandato di pagamento.
+Gli indicatori pro capite richiedono una fonte demografica aggiuntiva, per esempio ISTAT.
 
-La granularità temporale dipende dagli snapshot salvati. Per costruire una serie storica bisogna eseguire periodicamente il download e conservare ogni snapshot.
+## Lettura dei risultati
 
-Alcuni progetti possono non avere pagamenti associati, localizzazioni complete o codici territoriali utilizzabili. Questi casi devono essere verificati nei controlli di qualità.
+`national_summary.csv` descrive il quadro nazionale senza duplicazione territoriale.
 
-I confronti pro capite richiedono una fonte demografica aggiuntiva. La prima versione non integra automaticamente la popolazione ISTAT.
+`regional_summary.csv` confronta le regioni per finanziamenti, pagamenti e avanzamento finanziario allocato.
 
-I dati su gare e contratti richiedono controlli specifici su CIG, stazioni appaltanti, aggiudicatari e importi. La prima versione prepara la fonte ma non costruisce ancora indicatori di rischio sugli appalti.
+`municipal_summary.csv` permette analisi comunali sui soli progetti localizzati a livello comunale.
 
-## Guida all'interpretazione
-
-`national_summary.csv` descrive il quadro nazionale senza duplicare i progetti territorializzati.
-
-`regional_summary.csv` permette di confrontare regioni per finanziamento PNRR allocato, pagamenti allocati e avanzamento finanziario.
-
-`municipal_summary.csv` permette analisi comunali. Gli importi comunali sono costruiti con riparto uniforme dei progetti multi-localizzati.
-
-Un valore alto di `payment_progress_pnrr_allocated` indica che, rispetto al finanziamento PNRR allocato al territorio, una quota maggiore risulta pagata nel dataset disponibile.
-
-Un valore basso non indica automaticamente ritardo amministrativo. Può dipendere da natura dell'intervento, calendario dei lavori, regole di rendicontazione, aggiornamento della fonte o localizzazione del progetto.
-
-I grafici servono come sintesi visiva. Le decisioni analitiche vanno sempre verificate sulle tabelle in `output/data`.
+Un avanzamento finanziario alto indica maggiore quota pagata rispetto al finanziamento registrato. Non misura direttamente avanzamento fisico, qualità amministrativa o impatto economico.
