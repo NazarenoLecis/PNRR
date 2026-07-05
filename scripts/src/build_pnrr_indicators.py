@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.config import CLEAN_DATA_DIR, FUNDING_COLUMNS, INDICATORS_DATA_DIR, PAYMENT_COLUMNS, TERRITORY_OUTPUT_FILES, TERRITORY_PRIORITY
+from scripts.config import CLEAN_DATA_DIR, FUNDING_COLUMNS, INDICATORS_DATA_DIR, PAYMENT_COLUMNS, SAVE_INDICATOR_JSON, TERRITORY_OUTPUT_FILES, TERRITORY_PRIORITY
 from scripts.utils import latest_snapshot, read_csv, safe_divide, write_csv, write_json_records
 
 
@@ -28,9 +28,10 @@ def load_clean_tables(snapshot: str | None = None) -> dict[str, pd.DataFrame]:
 
 
 def save_indicator(df: pd.DataFrame, path: Path) -> None:
-    """Salva un indicatore in CSV e JSON."""
+    """Salva un indicatore in CSV e, solo se configurato, anche in JSON."""
     write_csv(df, path)
-    write_json_records(df, path.with_suffix(".json"))
+    if SAVE_INDICATOR_JSON:
+        write_json_records(df, path.with_suffix(".json"))
 
 
 def add_financial_ratios(df: pd.DataFrame, suffix: str = "") -> pd.DataFrame:
@@ -77,12 +78,7 @@ def attach_territory_registry(locations: pd.DataFrame, territories: pd.DataFrame
 
 
 def expand_projects_by_territory(projects_payments: pd.DataFrame, locations: pd.DataFrame, territories: pd.DataFrame) -> pd.DataFrame:
-    """Restituisce righe progetto-territorio al livello più fine disponibile.
-
-    Per ogni progetto si seleziona la localizzazione con priorità più alta:
-    comune, città metropolitana, provincia, regione. Gli aggregati regionali e
-    provinciali sono poi costruiti con roll-up gerarchico sui territori padre.
-    """
+    """Restituisce righe progetto-territorio al livello più fine disponibile."""
     enriched_locations = attach_territory_registry(locations, territories)
     required = ["project_key", "territorio_id", "istat_id", "denominazione", "tipologia", "parent_id"]
     available = [column for column in required if column in enriched_locations.columns]
