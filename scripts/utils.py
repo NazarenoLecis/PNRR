@@ -34,22 +34,40 @@ def hash_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
-def save_json(data: dict, path: str | Path) -> None:
-    """Riceve un dizionario e un percorso, salva un JSON formattato e non restituisce valori."""
+def save_json(data: dict | list, path: str | Path) -> None:
+    """Riceve dati serializzabili e un percorso, salva un JSON formattato."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with destination.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, ensure_ascii=False)
+        json.dump(data, handle, indent=2, ensure_ascii=False, default=str)
 
 
-def download_file(url: str, destination: str | Path, overwrite: bool = False) -> dict:
-    """Scarica un URL in un percorso locale e restituisce metadati del file salvato."""
+def write_json_records(df: pd.DataFrame, path: str | Path) -> None:
+    """Riceve un DataFrame e salva un JSON orientato a lista di record."""
+    records = df.where(pd.notna(df), None).to_dict(orient="records")
+    save_json(records, path)
+
+
+def download_file(url: str, destination: str | Path, overwrite: bool = False, timeout: int = 60, user_agent: str | None = None) -> dict:
+    """Scarica un URL in un percorso locale e restituisce metadati del file salvato.
+
+    Args:
+        url: risorsa remota.
+        destination: percorso locale.
+        overwrite: se True riscarica anche se il file esiste.
+        timeout: timeout HTTP in secondi.
+        user_agent: intestazione User-Agent opzionale.
+
+    Returns:
+        Dizionario con stato, byte e hash del file.
+    """
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and not overwrite:
         return {"url": url, "path": str(destination), "status": "skipped_existing", "bytes": destination.stat().st_size, "sha256": hash_file(destination)}
     temporary_path = destination.with_suffix(destination.suffix + ".tmp")
-    with requests.get(url, stream=True, timeout=120) as response:
+    headers = {"User-Agent": user_agent} if user_agent else None
+    with requests.get(url, stream=True, timeout=timeout, headers=headers) as response:
         response.raise_for_status()
         with temporary_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
@@ -65,10 +83,22 @@ def read_csv(path: str | Path) -> pd.DataFrame:
 
 
 def write_csv(df: pd.DataFrame, path: str | Path) -> None:
-    """Riceve un DataFrame e un percorso, salva un CSV UTF-8 e non restituisce valori."""
+    """Riceve un DataFrame e un percorso, salva un CSV UTF-8."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(destination, index=False, encoding="utf-8")
+
+
+def write_table_outputs(df: pd.DataFrame, csv_path: str | Path, save_json_output: bool = True) -> None:
+    """Salva una tabella in CSV e, se richiesto, anche in JSON.
+
+    La funzione usa lo stesso nome base del CSV e sostituisce l'estensione con
+    `.json`. Serve a mantenere paralleli output tabellari e output JSON.
+    """
+    csv_path = Path(csv_path)
+    write_csv(df, csv_path)
+    if save_json_output:
+        write_json_records(df, csv_path.with_suffix(".json"))
 
 
 def normalize_column_name(name: object) -> str:
@@ -93,7 +123,7 @@ def clean_string(value: object) -> str | pd.NA:
     if pd.isna(value):
         return pd.NA
     text = str(value).strip()
-    if not text or text.lower() in {"nan", "none", "null"}:
+    if not text or text.lower() in {"nan", "none", "null", "<na>"}:
         return pd.NA
     return text
 
@@ -103,14 +133,14 @@ def clean_code(value: object) -> str | pd.NA:
     text = clean_string(value)
     if pd.isna(text):
         return pd.NA
-    return str(text).upper()
+    return str(text).replace(".0", "").upper()
 
 
 def normalize_numeric_text(value: object) -> str | pd.NA:
     """Riceve testo numerico italiano o inglese e restituisce una stringa decimale standard."""
     if pd.isna(value):
         return pd.NA
-    text = str(value).strip().replace("\u00a0", "")
+    text = str(value).strip().replace("\u00a0", "").replace(" ", "")
     if not text:
         return pd.NA
     text = re.sub(r"[^0-9,.-]", "", text)
@@ -124,7 +154,7 @@ def normalize_numeric_text(value: object) -> str | pd.NA:
         else:
             text = text.replace(",", "")
     elif last_comma > -1:
-        text = text.replace(",", ".")
+        text = text.replace(".", "").replace(",", ".")
     return text
 
 
@@ -146,14 +176,26 @@ def first_existing_column(df: pd.DataFrame, candidates: Iterable[str]) -> str | 
 
 
 def add_project_key(df: pd.DataFrame) -> pd.DataFrame:
-    """Riceve una tabella PNRR e restituisce una copia con chiave tecnica project_key."""
+    """Riceve una tabella PNRR e restituisce una copia con chiave tecnica project_key.
+
+    Criterio metodologico: se esiste un identificativo progetto esplicito
+    (`progetto_id`, `id_progetto`, `id`) viene usato come chiave primaria. Se
+    manca, la chiave viene costruita con CUP e codice locale progetto. Questa
+    scelta riduce il rischio di join mancati tra progetti, pagamenti e
+    localizzazioni quando le tabelle pubblicano identificativi diversi.
+    """
     output = df.copy()
-    output["cup"] = output["cup"].map(clean_code).astype("string") if "cup" in output.columns else pd.Series(pd.NA, index=output.index, dtype="string")
-    output["codice_locale_progetto"] = output["codice_locale_progetto"].map(clean_code).astype("string") if "codice_locale_progetto" in output.columns else pd.Series(pd.NA, index=output.index, dtype="string")
-    fallback_column = first_existing_column(output, ["progetto_id", "id"])
-    fallback = output[fallback_column].map(clean_code).astype("string") if fallback_column else pd.Series(pd.NA, index=output.index, dtype="string")
-    key = output["cup"].fillna("") + "|" + output["codice_locale_progetto"].fillna("")
-    output["project_key"] = key.mask(key.str.strip("|") == "", "PROJECT_ID|" + fallback.fillna("")).astype("string")
+    id_column = first_existing_column(output, ["progetto_id", "id_progetto", "id"])
+    if id_column is not None:
+        output["project_key"] = "PROJECT_ID|" + output[id_column].map(clean_code).astype("string").fillna("")
+        return output
+
+    cup = output["cup"].map(clean_code).astype("string") if "cup" in output.columns else pd.Series(pd.NA, index=output.index, dtype="string")
+    clp = output["codice_locale_progetto"].map(clean_code).astype("string") if "codice_locale_progetto" in output.columns else pd.Series(pd.NA, index=output.index, dtype="string")
+    output["cup"] = cup
+    output["codice_locale_progetto"] = clp
+    key = cup.fillna("") + "|" + clp.fillna("")
+    output["project_key"] = key.mask(key.str.strip("|") == "", pd.NA).astype("string")
     return output
 
 
